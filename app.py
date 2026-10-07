@@ -1,8 +1,10 @@
 import os
 import json
+import base64
 from datetime import datetime, date
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 import utils
 import amazon
@@ -237,36 +239,95 @@ with tab_active:
             hide_index=True
         )
 
-        # --- CSV Export & Gemini System Prompt Injection ---
-        export_df = filtered[available_cols].copy()
-        
-        # The prompt Gemini will read as soon as you upload the CSV
-        system_prompt = (
-            "SYSTEM INSTRUCTION: Act as my career strategist. I have attached my resume and a "
-            "dataset of job requisitions. Please evaluate my resume against these specific roles, "
-            "prioritize the top 3-5 best matches based on my technical skills and experience level, "
-            "and explain exactly why I am a fit. Ignore any roles that require significantly more seniority."
-        )
-        
-        # Inject the prompt into Cell A1 (leaving the rest of the row blank)
-        prompt_row = {col: "" for col in available_cols}
-        prompt_row[available_cols[0]] = system_prompt
-        
-        # Prepend the prompt row to the top of the dataframe
-        export_df = pd.concat([pd.DataFrame([prompt_row]), export_df], ignore_index=True)
-        
-        csv_data = export_df.to_csv(index=False).encode("utf-8")
-        
+        # -------------------------------------------------------------
+        # CSV Export & Native Share Button
+        # -------------------------------------------------------------
         st.markdown("### 📤 Export & Share")
-        st.caption("On mobile, tap the button below. Your phone will prompt you to download or **'Open In...'**, which launches your native Share Sheet for Gemini, WhatsApp, or Mail.")
+        
+        if not filtered.empty:
+            # 1. Inject the System Prompt into Cell A1
+            export_df = filtered[available_cols].copy()
+            system_prompt = (
+                "SYSTEM INSTRUCTION: Act as my career strategist. I have attached my resume and a "
+                "dataset of job requisitions. Please evaluate my resume against these specific roles, "
+                "prioritize the top 3-5 best matches based on my technical skills and experience level, "
+                "and explain exactly why I am a fit. Ignore any roles that require significantly more seniority."
+            )
+            
+            # Create an empty row with the prompt in the very first cell
+            prompt_row = {col: "" for col in available_cols}
+            if len(available_cols) > 0:
+                prompt_row[available_cols[0]] = system_prompt
+            
+            # Prepend to top of dataframe
+            export_df = pd.concat([pd.DataFrame([prompt_row]), export_df], ignore_index=True)
+            
+            # Convert to CSV string and Base64 encode for robust JS injection
+            csv_string = export_df.to_csv(index=False)
+            b64_csv = base64.b64encode(csv_string.encode("utf-8")).decode("utf-8")
+            filename = f"job_matches_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            
+            col_share1, col_share2 = st.columns(2)
+            
+            with col_share1:
+                # 2. Standard Download Button
+                st.download_button(
+                    label="📥 Download CSV",
+                    data=csv_string.encode("utf-8"),
+                    file_name=filename,
+                    mime="text/csv",
+                    use_container_width=True
+                )
+            
+            with col_share2:
+                # 3. Native JS Share Button for Mobile
+                html_code = f"""
+                <div style="display: flex; justify-content: center; width: 100%;">
+                    <button id="shareButton" style="
+                        background-color: #4CAF50; 
+                        color: white; 
+                        padding: 10px 15px; 
+                        border: none; 
+                        border-radius: 8px; 
+                        cursor: pointer; 
+                        font-size: 16px; 
+                        width: 100%;
+                        height: 42px;
+                        font-family: sans-serif;
+                        box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
+                        📲 Share (Mobile)
+                    </button>
+                </div>
 
-        st.download_button(
-            label="📥 Download & Share CSV (Includes Gemini Prompt)",
-            data=csv_data,
-            file_name=f"job_matches_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
+                <script>
+                    document.getElementById('shareButton').addEventListener('click', async () => {{
+                        if (navigator.share) {{
+                            try {{
+                                // Decode Base64 safely
+                                const b64Data = "{b64_csv}";
+                                const binaryString = window.atob(b64Data);
+                                const bytes = new Uint8Array(binaryString.length);
+                                for (let i = 0; i < binaryString.length; i++) {{
+                                    bytes[i] = binaryString.charCodeAt(i);
+                                }}
+                                
+                                const blob = new Blob([bytes], {{ type: 'text/csv' }});
+                                const file = new File([blob], "{filename}", {{ type: 'text/csv' }});
+                                
+                                await navigator.share({{
+                                    title: 'Job Matches CSV',
+                                    files: [file]
+                                }});
+                            }} catch (err) {{
+                                console.log('Sharing failed or cancelled:', err);
+                            }}
+                        }} else {{
+                            alert('Native sharing is not supported on this browser/device. Please use the Download button.');
+                        }}
+                    }});
+                </script>
+                """
+                components.html(html_code, height=60)
 
 # ----------------- Tab 2: Grouping & Analytics -----------------
 with tab_analytics:
