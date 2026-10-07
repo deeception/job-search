@@ -1,6 +1,7 @@
 import requests
 import utils
 from datetime import datetime
+from bs4 import BeautifulSoup
 
 def scrape(seen_ids):
     url = "https://amazon.jobs/api/jobs/search?is_als=true"
@@ -10,7 +11,6 @@ def scrape(seen_ids):
         "Content-Type": "application/json"
     }
     
-    # Target early-to-mid career terms
     target_queries = ["Software Development Engineer I", "SDE 1", "AI Engineer", "Data Engineer"]
     jobs = []
     
@@ -36,11 +36,9 @@ def scrape(seen_ids):
                 job_id = fields.get("icimsJobId", [""])[0]
                 title = fields.get("title", [""])[0]
                 
-                # Deduplication check
                 if not job_id or not title or job_id in seen_ids: 
                     continue
                 
-                # Apply utils.py rules
                 title_lower = title.lower()
                 if not utils.is_valid_title(title_lower): 
                     continue
@@ -51,13 +49,19 @@ def scrape(seen_ids):
                 
                 location = fields.get("location", [""])[0]
                 
-                # --- NEW LOGIC: Convert Unix timestamp to readable date ---
                 raw_date = fields.get("createdDate", ["Unknown"])[0]
                 if isinstance(raw_date, (int, float)) or (isinstance(raw_date, str) and raw_date.isdigit()):
-                    # Converts e.g., 1786366475 -> 2026-08-08
                     posted_date = datetime.fromtimestamp(int(raw_date)).strftime("%Y-%m-%d")
                 else:
                     posted_date = str(raw_date)
+                
+                # --- NEW: Extract and clean the description ---
+                raw_desc = fields.get("description", [""])[0]
+                if raw_desc:
+                    soup = BeautifulSoup(raw_desc, "html.parser")
+                    description_text = soup.get_text(separator=" ", strip=True)
+                else:
+                    description_text = "Description not available"
                 
                 jobs.append({
                     "Company": "Amazon", 
@@ -67,6 +71,7 @@ def scrape(seen_ids):
                     "Tier": utils.get_location_tier(location), 
                     "Level": level,
                     "Posted_Date": posted_date,
+                    "Description": description_text, # Added description
                     "Link": f"https://amazon.jobs/en/jobs/{job_id}"
                 })
                 

@@ -1,29 +1,32 @@
 import requests
 import utils
 from bs4 import BeautifulSoup
-import datetime
 
 def scrape(seen_ids):
-    url = "https://paypal.eightfold.ai/api/apply/v2/jobs"
-    # Eightfold requires robust headers to bypass their 403 Forbidden WAF
+    # Switched from GraphQL to Walmart's REST job search API
+    url = "https://careers.walmart.com/api/jobs"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Referer": "https://paypal.eightfold.ai/careers",
-        "Origin": "https://paypal.eightfold.ai"
+        "Accept": "application/json, text/plain, */*"
     }
-    target_queries = ["Software Engineer", "Data Engineer", "AI Engineer"]
+    target_queries = ["Software Engineer", "Data Engineer", "Machine Learning"]
     jobs = []
     
     for query in target_queries:
-        params = {"domain": "paypal.com", "query": query, "location": "India"}
+        params = {
+            "page": 1,
+            "sort": "relevance",
+            "keyword": query,
+            "country": "India"
+        }
+        
         try:
             response = requests.get(url, params=params, headers=headers, timeout=15)
             if response.status_code != 200: continue
             
-            for job in response.json().get("positions", []):
-                job_id = str(job.get("id", ""))
-                title = job.get("name", "")
+            for job in response.json().get("jobSearchResult", {}).get("jobSpecs", []):
+                job_id = str(job.get("reqId", ""))
+                title = job.get("jobTitle", "")
                 
                 if not job_id or not title or job_id in seen_ids: continue
                 
@@ -31,19 +34,18 @@ def scrape(seen_ids):
                 if not utils.is_valid_title(title_lower): continue
                 if utils.parse_level(title_lower) == 0: continue
                 
-                loc = job.get("location", "Unknown")
-                raw_date = str(job.get("t_update", "Unknown"))
-                posted_date = datetime.datetime.fromtimestamp(int(raw_date)).strftime("%Y-%m-%d") if raw_date.isdigit() else raw_date[:10]
+                loc = f"{job.get('city', '')}, {job.get('state', '')}".strip(", ")
+                posted_date = job.get("postedDate", "Unknown")[:10]
                 
-                raw_desc = job.get("job_description", "")
+                raw_desc = job.get("jobDescription", "")
                 description_text = BeautifulSoup(raw_desc, "html.parser").get_text(separator=" ", strip=True) if raw_desc else "Description not available"
                     
                 jobs.append({
-                    "Company": "PayPal", "ID": job_id, "Title": title,
+                    "Company": "Walmart", "ID": job_id, "Title": title,
                     "Location": loc, "Tier": utils.get_location_tier(loc), "Level": utils.parse_level(title_lower),
                     "Posted_Date": posted_date, "Description": description_text,
-                    "Link": f"https://paypal.eightfold.ai/careers?pid={job_id}"
+                    "Link": f"https://careers.walmart.com/us/jobs/{job_id}"
                 })
         except Exception as e:
-            print(f"[PayPal] Error on '{query}': {e}")
+            print(f"[Walmart] Error on '{query}': {e}")
     return jobs

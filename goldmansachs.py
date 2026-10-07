@@ -1,5 +1,46 @@
 import requests
 import utils
+from bs4 import BeautifulSoup
+
+def get_job_description(job_id):
+    """Makes a secondary GraphQL call to fetch the full job description."""
+    url = "https://api-higher.gs.com/gateway/api/v1/graphql"
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Origin": "https://higher.gs.com"
+    }
+    
+    query = """
+    query GetRoleById($externalSourceId: String!, $externalSourceFetch: Boolean) {
+      role(externalSourceId: $externalSourceId, externalSourceFetch: $externalSourceFetch) {
+        descriptionHtml
+      }
+    }
+    """
+    
+    payload = {
+        "operationName": "GetRoleById",
+        "variables": {
+            "externalSourceId": str(job_id),
+            "externalSourceFetch": True
+        },
+        "query": query
+    }
+    
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=5)
+        data = response.json()
+        html_desc = data.get("data", {}).get("role", {}).get("descriptionHtml", "")
+        
+        if html_desc:
+            # Strip HTML tags to return clean text for the CSV
+            soup = BeautifulSoup(html_desc, "html.parser")
+            return soup.get_text(separator=" ", strip=True)
+    except Exception:
+        pass
+    return "Description not available"
 
 def scrape(seen_ids):
     url = "https://api-higher.gs.com/gateway/api/v1/graphql"
@@ -90,6 +131,9 @@ def scrape(seen_ids):
                 else:
                     loc = "India"
                 
+                # --- NEW: Fetch the description ---
+                description_text = get_job_description(job_id)
+                
                 jobs.append({
                     "Company": "Goldman Sachs",
                     "ID": job_id,
@@ -97,8 +141,8 @@ def scrape(seen_ids):
                     "Location": loc,
                     "Tier": utils.get_location_tier(loc),
                     "Level": level,
-                    # Goldman's API hides posting dates on unauthenticated searches
                     "Posted_Date": "Unknown",
+                    "Description": description_text, # Added to dictionary
                     "Link": f"https://higher.gs.com/roles/{job_id}"
                 })
         except Exception as e:

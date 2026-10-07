@@ -1,5 +1,24 @@
 import requests
 import utils
+from bs4 import BeautifulSoup
+
+def get_job_description(external_path):
+    """Fetches the full description from Workday's detail endpoint."""
+    url = f"https://visa.wd5.myworkdayjobs.com/wday/cxs/visa/Visa{external_path}"
+    headers = {
+        "User-Agent": "Mozilla/5.0", 
+        "Accept": "application/json"
+    }
+    try:
+        r = requests.get(url, headers=headers, timeout=5)
+        job_data = r.json().get("jobPostingInfo", {})
+        html_desc = job_data.get("jobDescription", "")
+        if html_desc:
+            soup = BeautifulSoup(html_desc, "html.parser")
+            return soup.get_text(separator=" ", strip=True)
+    except Exception:
+        pass
+    return "Description not available"
 
 def scrape(seen_ids):
     url = "https://visa.wd5.myworkdayjobs.com/wday/cxs/visa/Visa/jobs"
@@ -26,10 +45,14 @@ def scrape(seen_ids):
                 location = job.get("locationsText", "Unknown")
                 posted_date = job.get("postedOn", "Unknown")
                 
+                # --- NEW: Fetch the description ---
+                description_text = get_job_description(job_id)
+                
                 jobs.append({
                     "Company": "Visa", "ID": job_id, "Title": title, 
                     "Location": location, "Tier": utils.get_location_tier(location), "Level": level,
                     "Posted_Date": posted_date,
+                    "Description": description_text, # Added description
                     "Link": f"https://visa.wd5.myworkdayjobs.com/en-US/Visa{job_id}"
                 })
         except Exception as e:

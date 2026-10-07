@@ -1,0 +1,73 @@
+{
+  "inclusion_keywords": [
+    "software engineer",
+    "software development engineer",
+    "sde",
+    "data engineer",
+    "machine learning",
+    "ml engineer",
+    "ai engineer",
+    "applied ai",
+    "backend",
+    "systems engineer",
+    "platform engineer",
+    "applied scientist"
+  ],
+  "exclusion_keywords": [
+    "senior",
+    "sr.",
+    "sr ",
+    "staff",
+    "principal",
+    "director",
+    "manager",
+    "lead",
+    "architect",
+    "intern",
+    "internship",
+    "qa",
+    "quality assurance",
+    "test engineer",
+    "sdet",
+    "support",
+    "sales",
+    "recruiter",
+    "product manager",
+    "iii",
+    " 3 ",
+    " 3",
+    "iii,"
+  ],
+  "tier_1_locations": [
+    "bengaluru",
+    "bangalore",
+    "hyderabad",
+    "pune",
+    "mumbai",
+    "chennai",
+    "gurgaon",
+    "noida",
+    "india"
+  ],
+  "tier_2_locations": [
+    "london",
+    "dublin",
+    "singapore",
+    "tokyo",
+    "berlin",
+    "amsterdam",
+    "united kingdom",
+    "ireland"
+  ],
+  "tier_3_locations": [
+    "united states",
+    "us",
+    "san francisco",
+    "sunnyvale",
+    "cupertino",
+    "seattle",
+    "austin",
+    "new york",
+    "palo alto"
+  ]
+}

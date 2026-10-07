@@ -3,15 +3,13 @@ import csv
 import os
 from datetime import datetime
 
-# Import modular scrapers
+# Import the 5 functional modular scrapers
 import amazon
 import visa
 import jpmorgan
 import mastercard
-import microsoft
-import paypal
-import intuit
 import goldmansachs
+
 TRACKER_FILE = "seen_jobs_tracker.json"
 
 def get_seen_jobs():
@@ -28,15 +26,12 @@ def run_pipeline():
     print("Loading tracker and scraping corporate portals...")
     seen_ids = get_seen_jobs()
     
-    # Run all scrapers modularly
     new_jobs = []
+    # Execute the 5 clean scrapers
     new_jobs.extend(amazon.scrape(seen_ids))
     new_jobs.extend(jpmorgan.scrape(seen_ids))
     new_jobs.extend(visa.scrape(seen_ids))
     new_jobs.extend(mastercard.scrape(seen_ids))
-    new_jobs.extend(microsoft.scrape(seen_ids))
-    new_jobs.extend(paypal.scrape(seen_ids))
-    new_jobs.extend(intuit.scrape(seen_ids))
     new_jobs.extend(goldmansachs.scrape(seen_ids))
     
     if not new_jobs:
@@ -50,23 +45,28 @@ def run_pipeline():
     new_jobs = list(unique_jobs.values())
 
     # Sort priority: Location Tier (1 is best) -> Level (1 is best, ascending)
-    new_jobs.sort(key=lambda x: (x["Tier"], x["Level"]))
+    new_jobs.sort(key=lambda x: (x.get("Tier", "Tier 4"), x.get("Level", 99)))
 
-    # Generate CSV
+    # Generate CSV with new columns
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     csv_filename = f"job_matches_{timestamp}.csv"
     
+    # Added Posted_Date and Description to fieldnames
+    fieldnames = ["Company", "Title", "Location", "Tier", "Level", "Posted_Date", "Description", "Link"]
+    
     with open(csv_filename, mode='w', newline='', encoding='utf-8') as file:
-        writer = csv.DictWriter(file, fieldnames=["Company", "Title", "Location", "Tier", "Level", "Link"])
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
         for job in new_jobs:
             writer.writerow({
-                "Company": job["Company"],
-                "Title": job["Title"],
-                "Location": job["Location"],
-                "Tier": f"Tier {job['Tier']}",
-                "Level": f"SDE {job['Level']}" if job['Level'] != 1.5 else "Unspecified/Mid",
-                "Link": job["Link"]
+                "Company": job.get("Company", "Unknown"),
+                "Title": job.get("Title", "Unknown"),
+                "Location": job.get("Location", "Unknown"),
+                "Tier": str(job.get("Tier", "Unknown")),
+                "Level": f"SDE {job['Level']}" if job.get('Level') != 1.5 else "Unspecified/Mid",
+                "Posted_Date": job.get("Posted_Date", "Unknown"),
+                "Description": job.get("Description", "Description not available"),
+                "Link": job.get("Link", "")
             })
             seen_ids.add(job["ID"])
             

@@ -9,18 +9,17 @@ import amazon
 import visa
 import jpmorgan
 import mastercard
-import microsoft
 import goldmansachs
-# import paypal
 
 TRACKER_FILE = "seen_jobs_tracker.json"
 LEDGER_FILE = "job_history_ledger.csv"
 
+# Updated for mobile optimization
 st.set_page_config(
-    page_title="Requisition Intelligence Engine",
+    page_title="Requisition Intelligence",
     page_icon="💼",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="centered", # Better for mobile than "wide"
+    initial_sidebar_state="collapsed" # Starts collapsed on mobile
 )
 
 # ----------------- Persistence Layer -----------------
@@ -46,11 +45,17 @@ def load_ledger():
         try:
             df = pd.read_csv(LEDGER_FILE)
             df["Discovered_Date"] = pd.to_datetime(df["Discovered_Date"]).dt.date
-            # Ensure Posted_Date exists for backwards compatibility with old ledger data
+            # Ensure new columns exist for backwards compatibility
             if "Posted_Date" not in df.columns:
                 df["Posted_Date"] = "Unknown"
             else:
                 df["Posted_Date"] = df["Posted_Date"].fillna("Unknown")
+            
+            if "Description" not in df.columns:
+                df["Description"] = "Description not available"
+            else:
+                df["Description"] = df["Description"].fillna("Description not available")
+                
             return df
         except Exception:
             return pd.DataFrame()
@@ -66,9 +71,8 @@ def append_to_ledger(new_jobs_list):
     for job in new_jobs_list:
         job["Discovered_Date"] = cur_date
         job["Discovered_Timestamp"] = cur_timestamp
-        # Fallback if scraper hasn't been updated yet
-        if "Posted_Date" not in job:
-            job["Posted_Date"] = "Unknown"
+        if "Posted_Date" not in job: job["Posted_Date"] = "Unknown"
+        if "Description" not in job: job["Description"] = "Description not available"
 
     new_df = pd.DataFrame(new_jobs_list)
     
@@ -90,7 +94,6 @@ def execute_pipeline():
         ("Visa", visa.scrape),
         ("JPMorgan Chase", jpmorgan.scrape),
         ("Mastercard", mastercard.scrape),
-        ("Microsoft", microsoft.scrape),
         ("Goldman Sachs", goldmansachs.scrape),
     ]
 
@@ -164,48 +167,42 @@ with tab_active:
     else:
         st.markdown("#### Requisition Catalog")
         
-        # Primary Filter Strip
-        f_col1, f_col2, f_col3, f_col4 = st.columns(4)
-        
-        with f_col1:
-            comp_list = ["All Companies"] + sorted(list(ledger_data["Company"].dropna().unique()))
-            sel_comp = st.selectbox("Company", comp_list)
+        # Mobile optimized filtering (uses expander to save space)
+        with st.expander("🔍 Filters & Sorting", expanded=False):
+            f_col1, f_col2 = st.columns(2)
+            with f_col1:
+                comp_list = ["All Companies"] + sorted(list(ledger_data["Company"].dropna().unique()))
+                sel_comp = st.selectbox("Company", comp_list)
+                
+                level_list = ["All Levels"] + sorted(list(ledger_data["Level"].astype(str).unique()))
+                sel_level = st.selectbox("Career Level", level_list)
             
-        with f_col2:
-            tier_list = ["All Tiers"] + sorted(list(ledger_data["Tier"].dropna().unique()))
-            sel_tier = st.selectbox("Location Tier", tier_list)
-            
-        with f_col3:
-            level_list = ["All Levels"] + sorted(list(ledger_data["Level"].astype(str).unique()))
-            sel_level = st.selectbox("Career Level", level_list)
-            
-        with f_col4:
-            search_query = st.text_input("Title / Keyword Search", "")
+            with f_col2:
+                tier_list = ["All Tiers"] + sorted(list(ledger_data["Tier"].dropna().unique()))
+                sel_tier = st.selectbox("Location Tier", tier_list)
+                search_query = st.text_input("Title / Keyword Search", "")
 
-        # Date & Sort Scope Filter
-        s_col1, s_col2 = st.columns([2, 1])
-        with s_col1:
             date_scope = st.radio(
                 "Temporal Filter",
                 options=["All Dates", "Discovered Today", "Discovered Yesterday", "Custom Date Selection"],
                 horizontal=True
             )
-        with s_col2:
+            
             sort_pref = st.selectbox(
                 "Sort Table By",
                 ["Discovered Timestamp (Newest)", "Level (Highest First)", "Company (A-Z)"]
             )
 
+            if date_scope == "Custom Date Selection":
+                unique_dates = sorted(list(ledger_data["Discovered_Date"].unique()), reverse=True)
+                chosen_date = st.selectbox("Select Record Date", unique_dates)
+
         filtered = ledger_data.copy()
         
-        if sel_comp != "All Companies":
-            filtered = filtered[filtered["Company"] == sel_comp]
-        if sel_tier != "All Tiers":
-            filtered = filtered[filtered["Tier"] == sel_tier]
-        if sel_level != "All Levels":
-            filtered = filtered[filtered["Level"].astype(str) == sel_level]
-        if search_query:
-            filtered = filtered[filtered["Title"].str.contains(search_query, case=False, na=False)]
+        if sel_comp != "All Companies": filtered = filtered[filtered["Company"] == sel_comp]
+        if sel_tier != "All Tiers": filtered = filtered[filtered["Tier"] == sel_tier]
+        if sel_level != "All Levels": filtered = filtered[filtered["Level"].astype(str) == sel_level]
+        if search_query: filtered = filtered[filtered["Title"].str.contains(search_query, case=False, na=False)]
 
         today_val = date.today()
         if date_scope == "Discovered Today":
@@ -214,8 +211,6 @@ with tab_active:
             yesterday_val = today_val - pd.Timedelta(days=1)
             filtered = filtered[filtered["Discovered_Date"] == yesterday_val]
         elif date_scope == "Custom Date Selection":
-            unique_dates = sorted(list(ledger_data["Discovered_Date"].unique()), reverse=True)
-            chosen_date = st.selectbox("Select Record Date", unique_dates)
             filtered = filtered[filtered["Discovered_Date"] == chosen_date]
 
         # Apply Sorting
@@ -228,8 +223,20 @@ with tab_active:
 
         st.markdown(f"**Displaying {len(filtered)} requisitions**")
         
-        # Injected 'Posted_Date' right before Link
-        display_columns = ["Company", "Title", "Location", "Tier", "Level", "ID", "Discovered_Date", "Posted_Date", "Link"]
+        # --- Share to Gemini Payload Generator ---
+        if not filtered.empty:
+            with st.expander("🤖 Share to Gemini", expanded=False):
+                st.caption("Copy this text block and paste it into the Gemini app for review.")
+                share_text = "Here are the latest job matches from my scraper:\n\n"
+                for _, row in filtered.head(20).iterrows(): 
+                    share_text += f"• **{row['Title']}** at {row['Company']}\n  Location: {row['Location']} | Tier: {row.get('Tier', 'N/A')} | Level: {row['Level']}\n  Date: {row.get('Posted_Date', 'Unknown')}\n  Link: {row['Link']}\n\n"
+                
+                if len(filtered) > 20:
+                    share_text += f"...and {len(filtered) - 20} more jobs."
+                st.code(share_text, language="markdown")
+        
+        # Condensed mobile-friendly table display
+        display_columns = ["Company", "Title", "Location", "Level", "Posted_Date", "Link"]
         available_cols = [c for c in display_columns if c in filtered.columns]
         
         st.dataframe(
@@ -281,15 +288,13 @@ with tab_analytics:
             .sort_values(by="Total_Requisitions", ascending=False)
         )
         
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            st.markdown(f"##### Breakdown by {group_dim}")
-            st.dataframe(summary_table, use_container_width=True, hide_index=True)
-            
-        with c2:
-            st.markdown(f"##### Distribution across {group_dim}")
-            chart_df = summary_table.set_index(mapped_col)["Total_Requisitions"]
-            st.bar_chart(chart_df)
+        # Removed columns here to allow vertical stacking on mobile
+        st.markdown(f"##### Distribution across {group_dim}")
+        chart_df = summary_table.set_index(mapped_col)["Total_Requisitions"]
+        st.bar_chart(chart_df)
+        
+        st.markdown(f"##### Breakdown by {group_dim}")
+        st.dataframe(summary_table, use_container_width=True, hide_index=True)
 
 # ----------------- Tab 3: Historical Ingestion Log -----------------
 with tab_history:
@@ -350,22 +355,11 @@ with tab_config:
             value=", ".join(current_config.get("exclusion_keywords", []))
         )
         
-        col_t1, col_t2, col_t3 = st.columns(3)
-        with col_t1:
-            t1_str = st.text_area(
-                "Tier 1 Locations",
-                value=", ".join(current_config.get("tier_1_locations", []))
-            )
-        with col_t2:
-            t2_str = st.text_area(
-                "Tier 2 Locations",
-                value=", ".join(current_config.get("tier_2_locations", []))
-            )
-        with col_t3:
-            t3_str = st.text_area(
-                "Tier 3 Locations",
-                value=", ".join(current_config.get("tier_3_locations", []))
-            )
+        # Replaced columns with standard stacking for mobile readability
+        st.markdown("##### Location Rules")
+        t1_str = st.text_area("Tier 1 Locations", value=", ".join(current_config.get("tier_1_locations", [])))
+        t2_str = st.text_area("Tier 2 Locations", value=", ".join(current_config.get("tier_2_locations", [])))
+        t3_str = st.text_area("Tier 3 Locations", value=", ".join(current_config.get("tier_3_locations", [])))
             
         submitted = st.form_submit_button("Save and Apply Configuration", type="primary")
         
