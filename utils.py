@@ -1,66 +1,86 @@
-import re
+import os
+import json
 
-# 1. EXPANDED REJECT LIST: Kills false positives
-REJECT_KEYWORDS = [
-    # Seniority & Non-Tech
-    "java", "senior", "sr", "sr.", "lead", "principal", "director", "manager", 
-    "iv", "v", "hr", "strategy", "sales", "consulting", "marketing", 
-    "staff", "head", "architect",
-    # Job Types to Avoid
-    "data scientist", "data science", "ftc", "contract", "intern", "student", 
-    # Unrelated Domains (Operations, Hardware, Testing)
-    "support", "test automation", "qa", "sdet", "quality assurance",
-    "site reliability", "sre", "embedded", "firmware", "hardware", 
-    "cyber", "security", "robotics", "frontend", "ui", "ux"
-]
+CONFIG_FILE = "config.json"
 
-# 2. ENHANCED TARGET LIST: Aggressively target Agentic AI / RAG stacks based on JDs
-TECH_KEYWORDS = [
-    "software engineer", "sde", "software development engineer", "developer", 
-    "data engineer", "ai engineer", "machine learning", "python", "backend", 
-    "applied ai", "llm", "genai", "artificial intelligence",
-    "rag", "langchain", "agentic", "mlops"
-]
+DEFAULT_CONFIG = {
+    "inclusion_keywords": [
+        "software engineer", "software development engineer", "sde", 
+        "data engineer", "machine learning", "ml engineer", 
+        "ai engineer", "applied ai", "backend", "systems engineer", 
+        "platform engineer", "applied scientist"
+    ],
+    "exclusion_keywords": [
+        "senior", "sr.", "sr ", "staff", "principal", "director", 
+        "manager", "lead", "architect", "intern", "internship", 
+        "qa", "quality assurance", "test engineer", "sdet", 
+        "support", "sales", "recruiter", "product manager"
+    ],
+    "tier_1_locations": [
+        "bengaluru", "bangalore", "hyderabad", "pune", "mumbai", 
+        "chennai", "gurgaon", "noida", "india"
+    ],
+    "tier_2_locations": [
+        "london", "dublin", "singapore", "tokyo", "berlin", 
+        "amsterdam", "united kingdom", "ireland"
+    ],
+    "tier_3_locations": [
+        "united states", "us", "san francisco", "sunnyvale", 
+        "cupertino", "seattle", "austin", "new york", "palo alto"
+    ]
+}
 
-def get_location_tier(location_str):
-    """
-    Tier 1: India (Highest Priority)
-    Tier 2: UK, Europe, Canada, Australia, Singapore (Easier Visa)
-    Tier 3: US (Tough H-1B Lottery)
-    Tier 4: Rest of World
-    """
-    loc = location_str.lower()
-    if any(x in loc for x in ["india", "ind", "bangalore", "bengaluru", "pune", "hyderabad", "chennai", "mysuru", "gurgaon", "mumbai", "noida"]):
-        return 1
-    if any(x in loc for x in ["uk", "united kingdom", "london", "gb", "canada", "australia", "singapore", "germany", "ireland"]):
-        return 2
-    if any(x in loc for x in ["us", "united states", "usa", "california", "wa", "tx", "ny", "mo", "virginia", "colorado"]):
-        return 3
-    return 4
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return DEFAULT_CONFIG
+    save_config(DEFAULT_CONFIG)
+    return DEFAULT_CONFIG
 
-def parse_level(title_lower):
-    # 1. Reject Seniors and Executive Titles
-    if any(x in title_lower for x in ["lead", "senior", "sr", "principal", "manager", "director", "vp", "staff", "head", "architect"]):
-        return 0 
-        
-    # 2. Reject Level 3 / III (Out of reach for 1.5 YoE; auto-rejects)
-    if re.search(r'\b(iii|3)\b', title_lower) or "sde3" in title_lower or "sde 3" in title_lower:
-        return 0
-        
-    # 3. Match Level 2 / II (Stretch Roles: 2-4 YoE)
-    if re.search(r'\b(ii|2)\b', title_lower) or "sde2" in title_lower or "sde 2" in title_lower:
-        return 2
-        
-    # 4. Match Level 1 / I (Sweet Spot Roles: 0-2 YoE)
-    if re.search(r'\b(i|1)\b', title_lower) or "sde1" in title_lower or "sde 1" in title_lower or "associate" in title_lower or "fresher" in title_lower:
-        return 1
-        
-    # 5. Generic / Unspecified (Likely entry-to-mid, safe to review)
-    return 1.5
+def save_config(config_data):
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(config_data, f, indent=2)
 
 def is_valid_title(title_lower):
-    if not any(t in title_lower for t in TECH_KEYWORDS): 
+    config = load_config()
+    
+    # Must match at least one inclusion pattern
+    inclusions = config.get("inclusion_keywords", DEFAULT_CONFIG["inclusion_keywords"])
+    if not any(kw.lower() in title_lower for kw in inclusions):
         return False
-    if any(r in title_lower for r in REJECT_KEYWORDS): 
+        
+    # Must not contain any excluded seniority or domain pattern
+    exclusions = config.get("exclusion_keywords", DEFAULT_CONFIG["exclusion_keywords"])
+    if any(kw.lower() in title_lower for kw in exclusions):
         return False
+        
     return True
+
+def parse_level(title_lower):
+    # Early Career / SDE 1
+    if any(k in title_lower for k in ["sde 1", "sde i", "sde-1", "sde-i", "engineer 1", "engineer i", "analyst"]):
+        return 1.0
+    # Mid Career / SDE 2
+    if any(k in title_lower for k in ["sde 2", "sde ii", "sde-2", "sde-ii", "engineer 2", "engineer ii", "engineer - ii", "associate"]):
+        return 2.0
+    # Unspecified / General IC
+    return 1.5
+
+def get_location_tier(location_str):
+    loc_lower = str(location_str).lower()
+    config = load_config()
+    
+    tier_1 = config.get("tier_1_locations", DEFAULT_CONFIG["tier_1_locations"])
+    tier_2 = config.get("tier_2_locations", DEFAULT_CONFIG["tier_2_locations"])
+    tier_3 = config.get("tier_3_locations", DEFAULT_CONFIG["tier_3_locations"])
+    
+    if any(city in loc_lower for city in tier_1):
+        return "Tier 1"
+    if any(city in loc_lower for city in tier_2):
+        return "Tier 2"
+    if any(city in loc_lower for city in tier_3):
+        return "Tier 3"
+    return "Tier 4"
