@@ -41,10 +41,22 @@ def save_tracker(seen_ids):
         json.dump(list(seen_ids), f, indent=2)
 
 def wipe_database():
-    """Wipes tracker, ledger, AND corrupted configs to restore defaults."""
-    for file_path in [TRACKER_FILE, LEDGER_FILE, CONFIG_FILE]:
-        if os.path.exists(file_path):
-            os.remove(file_path)
+    """Wipes tracker, ledger, and FORCE-RESTORES the default config.json"""
+    if os.path.exists(TRACKER_FILE):
+        os.remove(TRACKER_FILE)
+    if os.path.exists(LEDGER_FILE):
+        os.remove(LEDGER_FILE)
+        
+    # Force rewrite the config file with the broad whitelist to fix the 0 jobs issue
+    default_config = {
+        "inclusion_keywords": ["software", "sde", "developer", "data", "machine learning", "ai", "engineer", "backend", "frontend", "fullstack"],
+        "exclusion_keywords": ["senior", "principal", "manager", "lead", "iii", "3", "vp", "vice president", "sr"],
+        "tier_1_locations": ["bengaluru", "hyderabad", "pune"],
+        "tier_2_locations": ["london", "singapore"],
+        "tier_3_locations": ["united states", "seattle"]
+    }
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(default_config, f, indent=2)
 
 def load_ledger():
     if os.path.exists(LEDGER_FILE):
@@ -107,9 +119,7 @@ def execute_pipeline():
     status_box = st.empty()
     status_box.text("Launching parallel extractors...")
 
-    # Execute all scrapers simultaneously using a ThreadPool
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(scrapers)) as executor:
-        # Submit all tasks to the thread pool
         future_to_name = {executor.submit(fn, seen_ids): name for name, fn in scrapers}
         
         completed = 0
@@ -149,7 +159,7 @@ with st.sidebar:
 
     if st.button("🚨 Factory Reset (Wipe Database)", use_container_width=True):
         wipe_database()
-        st.warning("Server database & config wiped! Run extraction to build a fresh ledger.")
+        st.warning("Server database wiped and safe default config restored!")
         st.rerun()
 
     st.markdown("---")
