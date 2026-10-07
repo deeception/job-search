@@ -1,5 +1,6 @@
 import os
 import json
+import re
 
 CONFIG_FILE = "config.json"
 
@@ -14,7 +15,8 @@ DEFAULT_CONFIG = {
         "senior", "sr.", "sr ", "staff", "principal", "director", 
         "manager", "lead", "architect", "intern", "internship", 
         "qa", "quality assurance", "test engineer", "sdet", 
-        "support", "sales", "recruiter", "product manager"
+        "support", "sales", "recruiter", "product manager",
+        "iii", " 3 ", " 3", "iii," # Added Level 3 / Senior numerical blocks
     ],
     "tier_1_locations": [
         "bengaluru", "bangalore", "hyderabad", "pune", "mumbai", 
@@ -47,12 +49,10 @@ def save_config(config_data):
 def is_valid_title(title_lower):
     config = load_config()
     
-    # Must match at least one inclusion pattern
     inclusions = config.get("inclusion_keywords", DEFAULT_CONFIG["inclusion_keywords"])
     if not any(kw.lower() in title_lower for kw in inclusions):
         return False
         
-    # Must not contain any excluded seniority or domain pattern
     exclusions = config.get("exclusion_keywords", DEFAULT_CONFIG["exclusion_keywords"])
     if any(kw.lower() in title_lower for kw in exclusions):
         return False
@@ -60,12 +60,17 @@ def is_valid_title(title_lower):
     return True
 
 def parse_level(title_lower):
-    # Early Career / SDE 1
-    if any(k in title_lower for k in ["sde 1", "sde i", "sde-1", "sde-i", "engineer 1", "engineer i", "analyst"]):
+    # Use regex word boundaries (\b) so " i " doesn't match inside " ii " or " iii "
+    # SDE 1 / Early Career
+    sde1_pattern = r"\b(sde 1|sde i|sde-1|sde-i|engineer 1|engineer i|analyst)\b"
+    if re.search(sde1_pattern, title_lower):
         return 1.0
-    # Mid Career / SDE 2
-    if any(k in title_lower for k in ["sde 2", "sde ii", "sde-2", "sde-ii", "engineer 2", "engineer ii", "engineer - ii", "associate"]):
+        
+    # SDE 2 / Mid Career
+    sde2_pattern = r"\b(sde 2|sde ii|sde-2|sde-ii|engineer 2|engineer ii|engineer - ii|associate)\b"
+    if re.search(sde2_pattern, title_lower):
         return 2.0
+        
     # Unspecified / General IC
     return 1.5
 
