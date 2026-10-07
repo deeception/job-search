@@ -1,7 +1,6 @@
 import os
 import json
 import base64
-import concurrent.futures
 from datetime import datetime, date
 import pandas as pd
 import streamlit as st
@@ -27,8 +26,6 @@ st.set_page_config(
 )
 
 # ----------------- AUTO-HEALER -----------------
-# This ensures that if an empty config.json is pulled from GitHub, 
-# it automatically restores your defaults so extraction doesn't fail.
 def auto_heal_config():
     needs_healing = False
     if os.path.exists(CONFIG_FILE):
@@ -81,7 +78,6 @@ def load_ledger():
         try:
             df = pd.read_csv(LEDGER_FILE)
             df["Discovered_Date"] = pd.to_datetime(df["Discovered_Date"]).dt.date
-            # Ensure new columns exist for backwards compatibility
             if "Posted_Date" not in df.columns:
                 df["Posted_Date"] = "Unknown"
             else:
@@ -120,7 +116,7 @@ def append_to_ledger(new_jobs_list):
     else:
         new_df.to_csv(LEDGER_FILE, index=False)
 
-# ----------------- Execution Orchestration (CLEAN PARALLEL) -----------------
+# ----------------- Execution Orchestration (SEQUENTIAL/STABLE) -----------------
 def execute_pipeline():
     seen_ids = load_tracker()
     fresh_jobs = []
@@ -135,28 +131,18 @@ def execute_pipeline():
 
     progress_bar = st.progress(0)
     status_box = st.empty()
-    status_box.text("Launching parallel extractors...")
 
-    # Using clean ThreadPoolExecutor without the buggy Streamlit context injector
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(scrapers)) as executor:
-        # Pass a copy of seen_ids (as a set) to prevent memory overlap between threads
-        future_to_name = {executor.submit(fn, set(seen_ids)): name for name, fn in scrapers}
-        
-        completed = 0
-        for future in concurrent.futures.as_completed(future_to_name):
-            name = future_to_name[future]
-            try:
-                results = future.result()
-                if results:
-                    fresh_jobs.extend(results)
-                    for item in results:
-                        seen_ids.add(str(item["ID"]))
-            except Exception as e:
-                st.error(f"Error communicating with {name}: {e}")
-            
-            completed += 1
-            progress_bar.progress(completed / len(scrapers))
-            status_box.text(f"Completed {name} ({completed}/{len(scrapers)})...")
+    for idx, (name, scrape_fn) in enumerate(scrapers):
+        status_box.text(f"Querying endpoint: {name}...")
+        try:
+            results = scrape_fn(seen_ids)
+            if results:
+                fresh_jobs.extend(results)
+                for item in results:
+                    seen_ids.add(str(item["ID"]))
+        except Exception as e:
+            st.error(f"Error communicating with {name}: {e}")
+        progress_bar.progress((idx + 1) / len(scrapers))
 
     save_tracker(seen_ids)
     append_to_ledger(fresh_jobs)
