@@ -1,0 +1,6 @@
+.env
+seen_jobs_tracker.json
+job_matches_*.csv
+filtered_job_matches.csv
+__pycache__/
+*.pyc
