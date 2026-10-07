@@ -23,7 +23,11 @@ def save_config(config_data):
     with open(CONFIG_FILE, "w") as f:
         json.dump(config_data, f, indent=2)
 
-def is_valid_title(title, config):
+def is_valid_title(title, config=None):
+    # FALLBACK: If a scraper doesn't pass a config, load it automatically
+    if config is None:
+        config = load_config()
+        
     title_lower = title.lower()
     
     # 1. Check exclusions first
@@ -31,20 +35,18 @@ def is_valid_title(title, config):
         excl_clean = excl.strip().lower()
         if not excl_clean: continue
         
-        # If it's a standalone word/number (like "iii", "3", "senior"), use strict boundaries
         if excl_clean.isalnum():
             pattern = r'\b' + re.escape(excl_clean) + r'\b'
             if re.search(pattern, title_lower):
                 return False
         else:
-            # If it has punctuation (like "sr.", "iii,"), use a direct substring match
             if excl_clean in title_lower:
                 return False
             
     # 2. Check inclusions
     inclusions = config.get("inclusion_keywords", [])
     if not inclusions: 
-        return True # If whitelist is completely empty, allow everything through to be safe
+        return True
         
     for incl in inclusions:
         incl_clean = incl.strip().lower()
@@ -54,7 +56,7 @@ def is_valid_title(title, config):
             
     return False
 
-def extract_level(title):
+def parse_level(title):
     title_lower = title.lower()
     if re.search(r'\b(iii|3|senior|sr|lead|principal|manager)\b', title_lower):
         return 3.0
@@ -64,8 +66,10 @@ def extract_level(title):
         return 1.0
     return 1.5
 
-def extract_tier(location, config):
+def get_location_tier(location):
     loc_lower = str(location).lower()
+    config = load_config()
+    
     for t1 in config.get("tier_1_locations", []):
         if t1 in loc_lower: return "Tier 1"
     for t2 in config.get("tier_2_locations", []):

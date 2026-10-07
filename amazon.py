@@ -38,15 +38,15 @@ def scrape(seen_ids):
                 
                 if not job_id or not title or job_id in seen_ids: 
                     continue
-                
+                    
                 title_lower = title.lower()
                 if not utils.is_valid_title(title_lower): 
                     continue
-                
+                    
                 level = utils.parse_level(title_lower)
                 if level == 0: 
                     continue
-                
+                    
                 location = fields.get("location", [""])[0]
                 
                 raw_date = fields.get("createdDate", ["Unknown"])[0]
@@ -55,7 +55,6 @@ def scrape(seen_ids):
                 else:
                     posted_date = str(raw_date)
                 
-                # --- NEW: Extract and clean the description ---
                 raw_desc = fields.get("description", [""])[0]
                 if raw_desc:
                     soup = BeautifulSoup(raw_desc, "html.parser")
@@ -71,7 +70,7 @@ def scrape(seen_ids):
                     "Tier": utils.get_location_tier(location), 
                     "Level": level,
                     "Posted_Date": posted_date,
-                    "Description": description_text, # Added description
+                    "Description": description_text,
                     "Link": f"https://amazon.jobs/en/jobs/{job_id}"
                 })
                 

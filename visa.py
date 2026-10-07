@@ -3,7 +3,6 @@ import utils
 from bs4 import BeautifulSoup
 
 def get_job_description(external_path):
-    """Fetches the full description from Workday's detail endpoint."""
     url = f"https://visa.wd5.myworkdayjobs.com/wday/cxs/visa/Visa{external_path}"
     headers = {
         "User-Agent": "Mozilla/5.0", 
@@ -34,27 +33,34 @@ def scrape(seen_ids):
             for job in response.json().get("jobPostings", []):
                 job_id = job.get("externalPath", "")
                 title = job.get("title", "")
-                if not job_id or not title or job_id in seen_ids: continue
+                if not job_id or not title or job_id in seen_ids: 
+                    continue
                 
                 title_lower = title.lower()
-                if not utils.is_valid_title(title_lower): continue
+                if not utils.is_valid_title(title_lower): 
+                    continue
                 
                 level = utils.parse_level(title_lower)
-                if level == 0: continue
+                if level == 0: 
+                    continue
                 
                 location = job.get("locationsText", "Unknown")
-                posted_date = job.get("postedOn", "Unknown")
+                posted_date = str(job.get("postedOn", "Unknown"))
                 
-                # --- NEW: Fetch the description ---
                 description_text = get_job_description(job_id)
                 
                 jobs.append({
-                    "Company": "Visa", "ID": job_id, "Title": title, 
-                    "Location": location, "Tier": utils.get_location_tier(location), "Level": level,
+                    "Company": "Visa", 
+                    "ID": job_id, 
+                    "Title": title, 
+                    "Location": location, 
+                    "Tier": utils.get_location_tier(location), 
+                    "Level": level,
                     "Posted_Date": posted_date,
-                    "Description": description_text, # Added description
+                    "Description": description_text,
                     "Link": f"https://visa.wd5.myworkdayjobs.com/en-US/Visa{job_id}"
                 })
         except Exception as e:
             print(f"[Visa] Error on '{query}': {e}")
+            
     return jobs

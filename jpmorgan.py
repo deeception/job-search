@@ -3,13 +3,11 @@ import utils
 from bs4 import BeautifulSoup
 
 def get_job_description(job_id):
-    """Fetches the full description from Oracle HCM's detail endpoint."""
     url = "https://jpmc.fa.oraclecloud.com/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails"
     headers = {
         "User-Agent": "Mozilla/5.0", 
         "Accept": "application/json"
     }
-    # Notice the %22 which URL-encodes the double quotes around the ID
     params = {
         "expand": "all",
         "onlyData": "true",
@@ -18,13 +16,11 @@ def get_job_description(job_id):
     
     try:
         r = requests.get(url, params=params, headers=headers, timeout=5)
-        # Oracle HCM often hides the description deep in an array
         items = r.json().get("items", [])
         if not items:
             return "Description not available"
             
         job_data = items[0]
-        # Check standard Oracle fields for the description
         html_desc = job_data.get("ExternalDescriptionStr") or job_data.get("ShortDescription") or job_data.get("Description", "")
         
         if html_desc:
@@ -50,27 +46,33 @@ def scrape(seen_ids):
             requisitions = response.json().get("items", [{}])[0].get("requisitionList", [])
             
             for job in requisitions:
-                job_id = job.get("Id", "")
+                job_id = str(job.get("Id", ""))
                 title = job.get("Title", "")
-                if not job_id or not title or job_id in seen_ids: continue
+                if not job_id or not title or job_id in seen_ids: 
+                    continue
                 
                 title_lower = title.lower()
-                if not utils.is_valid_title(title_lower): continue
+                if not utils.is_valid_title(title_lower): 
+                    continue
                 
                 level = utils.parse_level(title_lower)
-                if level == 0: continue
+                if level == 0: 
+                    continue
                 
                 location = job.get("PrimaryLocation", "Multiple Locations")
-                posted_date = job.get("PostingDate", "Unknown")
+                posted_date = str(job.get("PostingDate") or "Unknown")
                 
-                # --- NEW: Fetch the description ---
                 description_text = get_job_description(job_id)
                 
                 jobs.append({
-                    "Company": "JPMorgan", "ID": job_id, "Title": title, 
-                    "Location": location, "Tier": utils.get_location_tier(location), "Level": level,
+                    "Company": "JPMorgan", 
+                    "ID": job_id, 
+                    "Title": title, 
+                    "Location": location, 
+                    "Tier": utils.get_location_tier(location), 
+                    "Level": level,
                     "Posted_Date": posted_date[:10] if posted_date != "Unknown" else "Unknown",
-                    "Description": description_text, # Added description
+                    "Description": description_text,
                     "Link": f"https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/{job_id}"
                 })
         except Exception as e:

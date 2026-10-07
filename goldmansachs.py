@@ -3,7 +3,6 @@ import utils
 from bs4 import BeautifulSoup
 
 def get_job_description(job_id):
-    """Makes a secondary GraphQL call to fetch the full job description."""
     url = "https://api-higher.gs.com/gateway/api/v1/graphql"
     headers = {
         "User-Agent": "Mozilla/5.0",
@@ -35,7 +34,6 @@ def get_job_description(job_id):
         html_desc = data.get("data", {}).get("role", {}).get("descriptionHtml", "")
         
         if html_desc:
-            # Strip HTML tags to return clean text for the CSV
             soup = BeautifulSoup(html_desc, "html.parser")
             return soup.get_text(separator=" ", strip=True)
     except Exception:
@@ -110,17 +108,20 @@ def scrape(seen_ids):
                 raw_id = str(ext_source.get("sourceId") or job.get("roleId") or "")
                 job_id = raw_id.split("_")[0].strip()
                 
-                if not job_id or len(job_id) > 10 or "-" in job_id: continue
-                if job_id in seen_ids: continue
+                if not job_id or len(job_id) > 10 or "-" in job_id or job_id in seen_ids: 
+                    continue
                 
                 title = job.get("jobTitle", "")
-                if not title: continue
+                if not title: 
+                    continue
 
                 title_lower = title.lower()
-                if not utils.is_valid_title(title_lower): continue
+                if not utils.is_valid_title(title_lower): 
+                    continue
                     
                 level = utils.parse_level(title_lower)
-                if level == 0: continue
+                if level == 0: 
+                    continue
                 
                 loc_list = job.get("locations", [])
                 if loc_list:
@@ -131,7 +132,6 @@ def scrape(seen_ids):
                 else:
                     loc = "India"
                 
-                # --- NEW: Fetch the description ---
                 description_text = get_job_description(job_id)
                 
                 jobs.append({
@@ -142,7 +142,7 @@ def scrape(seen_ids):
                     "Tier": utils.get_location_tier(loc),
                     "Level": level,
                     "Posted_Date": "Unknown",
-                    "Description": description_text, # Added to dictionary
+                    "Description": description_text,
                     "Link": f"https://higher.gs.com/roles/{job_id}"
                 })
         except Exception as e:
