@@ -223,18 +223,6 @@ with tab_active:
 
         st.markdown(f"**Displaying {len(filtered)} requisitions**")
         
-        # --- Share to Gemini Payload Generator ---
-        if not filtered.empty:
-            with st.expander("🤖 Share to Gemini", expanded=False):
-                st.caption("Copy this text block and paste it into the Gemini app for review.")
-                share_text = "Here are the latest job matches from my scraper:\n\n"
-                for _, row in filtered.head(20).iterrows(): 
-                    share_text += f"• **{row['Title']}** at {row['Company']}\n  Location: {row['Location']} | Tier: {row.get('Tier', 'N/A')} | Level: {row['Level']}\n  Date: {row.get('Posted_Date', 'Unknown')}\n  Link: {row['Link']}\n\n"
-                
-                if len(filtered) > 20:
-                    share_text += f"...and {len(filtered) - 20} more jobs."
-                st.code(share_text, language="markdown")
-        
         # Condensed mobile-friendly table display
         display_columns = ["Company", "Title", "Location", "Level", "Posted_Date", "Link"]
         available_cols = [c for c in display_columns if c in filtered.columns]
@@ -249,13 +237,35 @@ with tab_active:
             hide_index=True
         )
 
-        # Export Controls
-        csv_data = filtered.to_csv(index=False).encode("utf-8")
+        # --- CSV Export & Gemini System Prompt Injection ---
+        export_df = filtered[available_cols].copy()
+        
+        # The prompt Gemini will read as soon as you upload the CSV
+        system_prompt = (
+            "SYSTEM INSTRUCTION: Act as my career strategist. I have attached my resume and a "
+            "dataset of job requisitions. Please evaluate my resume against these specific roles, "
+            "prioritize the top 3-5 best matches based on my technical skills and experience level, "
+            "and explain exactly why I am a fit. Ignore any roles that require significantly more seniority."
+        )
+        
+        # Inject the prompt into Cell A1 (leaving the rest of the row blank)
+        prompt_row = {col: "" for col in available_cols}
+        prompt_row[available_cols[0]] = system_prompt
+        
+        # Prepend the prompt row to the top of the dataframe
+        export_df = pd.concat([pd.DataFrame([prompt_row]), export_df], ignore_index=True)
+        
+        csv_data = export_df.to_csv(index=False).encode("utf-8")
+        
+        st.markdown("### 📤 Export & Share")
+        st.caption("On mobile, tap the button below. Your phone will prompt you to download or **'Open In...'**, which launches your native Share Sheet for Gemini, WhatsApp, or Mail.")
+
         st.download_button(
-            label="Export Filtered Set to CSV",
+            label="📥 Download & Share CSV (Includes Gemini Prompt)",
             data=csv_data,
-            file_name=f"requisition_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            file_name=f"job_matches_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
             mime="text/csv",
+            use_container_width=True
         )
 
 # ----------------- Tab 2: Grouping & Analytics -----------------
