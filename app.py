@@ -20,8 +20,8 @@ LEDGER_FILE = "job_history_ledger.csv"
 st.set_page_config(
     page_title="Requisition Intelligence",
     page_icon="💼",
-    layout="centered", # Better for mobile than "wide"
-    initial_sidebar_state="collapsed" # Starts collapsed on mobile
+    layout="centered",
+    initial_sidebar_state="collapsed"
 )
 
 # ----------------- Persistence Layer -----------------
@@ -169,7 +169,6 @@ with tab_active:
     else:
         st.markdown("#### Requisition Catalog")
         
-        # Mobile optimized filtering (uses expander to save space)
         with st.expander("🔍 Filters & Sorting", expanded=False):
             f_col1, f_col2 = st.columns(2)
             with f_col1:
@@ -215,7 +214,6 @@ with tab_active:
         elif date_scope == "Custom Date Selection":
             filtered = filtered[filtered["Discovered_Date"] == chosen_date]
 
-        # Apply Sorting
         if sort_pref == "Discovered Timestamp (Newest)":
             filtered = filtered.sort_values(by="Discovered_Timestamp", ascending=False)
         elif sort_pref == "Level (Highest First)":
@@ -225,15 +223,15 @@ with tab_active:
 
         st.markdown(f"**Displaying {len(filtered)} requisitions**")
         
-        # Condensed mobile-friendly table display
+        # Condensed mobile-friendly UI table
         display_columns = ["Company", "Title", "Location", "Level", "Posted_Date", "Link"]
-        available_cols = [c for c in display_columns if c in filtered.columns]
+        ui_cols = [c for c in display_columns if c in filtered.columns]
         
         st.dataframe(
-            filtered[available_cols],
+            filtered[ui_cols],
             column_config={
                 "Link": st.column_config.LinkColumn("Application Portal", display_text="Open Listing"),
-                "Posted_Date": st.column_config.TextColumn("ATS Posted Date")
+                "Posted_Date": st.column_config.TextColumn("ATS Date")
             },
             use_container_width=True,
             hide_index=True
@@ -245,24 +243,25 @@ with tab_active:
         st.markdown("### 📤 Export & Share")
         
         if not filtered.empty:
-            # 1. Inject the System Prompt into Cell A1
-            export_df = filtered[available_cols].copy()
+            # 1. Grab FULL columns for export (including ID and Description)
+            export_columns = ["Company", "ID", "Title", "Location", "Tier", "Level", "Posted_Date", "Link", "Description"]
+            avail_export_cols = [c for c in export_columns if c in filtered.columns]
+            export_df = filtered[avail_export_cols].copy()
+            
+            # 2. Inject the New System Prompt into Cell A1
             system_prompt = (
-                "SYSTEM INSTRUCTION: Act as my career strategist. I have attached my resume and a "
-                "dataset of job requisitions. Please evaluate my resume against these specific roles, "
-                "prioritize the top 3-5 best matches based on my technical skills and experience level, "
-                "and explain exactly why I am a fit. Ignore any roles that require significantly more seniority."
+                "SYSTEM INSTRUCTION: Evaluate my attached resume against this dataset of jobs. "
+                "For EACH company, give me the top 3 to 5 best matches based on my skills and experience. "
+                "Output ONLY the Job IDs and Job Titles. Do not provide explanations, descriptions, or formatting unless I ask later."
             )
             
-            # Create an empty row with the prompt in the very first cell
-            prompt_row = {col: "" for col in available_cols}
-            if len(available_cols) > 0:
-                prompt_row[available_cols[0]] = system_prompt
+            prompt_row = {col: "" for col in avail_export_cols}
+            if len(avail_export_cols) > 0:
+                prompt_row[avail_export_cols[0]] = system_prompt
             
-            # Prepend to top of dataframe
             export_df = pd.concat([pd.DataFrame([prompt_row]), export_df], ignore_index=True)
             
-            # Convert to CSV string and Base64 encode for robust JS injection
+            # 3. Convert to CSV string and Base64 encode
             csv_string = export_df.to_csv(index=False)
             b64_csv = base64.b64encode(csv_string.encode("utf-8")).decode("utf-8")
             filename = f"job_matches_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
@@ -270,7 +269,6 @@ with tab_active:
             col_share1, col_share2 = st.columns(2)
             
             with col_share1:
-                # 2. Standard Download Button
                 st.download_button(
                     label="📥 Download CSV",
                     data=csv_string.encode("utf-8"),
@@ -280,7 +278,10 @@ with tab_active:
                 )
             
             with col_share2:
-                # 3. Native JS Share Button for Mobile
+                # We inject the prompt directly into the 'text' field of the JS share intent, 
+                # just in case the Gemini App drops the file attachment.
+                safe_prompt_js = system_prompt.replace('"', '\\"').replace('\n', ' ')
+                
                 html_code = f"""
                 <div style="display: flex; justify-content: center; width: 100%;">
                     <button id="shareButton" style="
@@ -303,7 +304,6 @@ with tab_active:
                     document.getElementById('shareButton').addEventListener('click', async () => {{
                         if (navigator.share) {{
                             try {{
-                                // Decode Base64 safely
                                 const b64Data = "{b64_csv}";
                                 const binaryString = window.atob(b64Data);
                                 const bytes = new Uint8Array(binaryString.length);
@@ -316,13 +316,14 @@ with tab_active:
                                 
                                 await navigator.share({{
                                     title: 'Job Matches CSV',
+                                    text: "{safe_prompt_js}",
                                     files: [file]
                                 }});
                             }} catch (err) {{
-                                console.log('Sharing failed or cancelled:', err);
+                                console.log('Sharing failed:', err);
                             }}
                         }} else {{
-                            alert('Native sharing is not supported on this browser/device. Please use the Download button.');
+                            alert('Native sharing is not supported. Please use Download.');
                         }}
                     }});
                 </script>
@@ -335,7 +336,6 @@ with tab_analytics:
         st.info("No data available for analytics. Run an extraction first.")
     else:
         st.markdown("#### Aggregate Analytics")
-        
         group_dim = st.selectbox(
             "Primary Grouping Dimension", 
             ["Company", "Location Tier", "Level", "Discovered_Date", "Posted_Date"]
@@ -359,7 +359,6 @@ with tab_analytics:
             .sort_values(by="Total_Requisitions", ascending=False)
         )
         
-        # Removed columns here to allow vertical stacking on mobile
         st.markdown(f"##### Distribution across {group_dim}")
         chart_df = summary_table.set_index(mapped_col)["Total_Requisitions"]
         st.bar_chart(chart_df)
@@ -409,7 +408,7 @@ with tab_history:
 # ----------------- Tab 4: Rule Configuration -----------------
 with tab_config:
     st.markdown("#### Dynamic Engine Configuration")
-    st.caption("Modifications saved here persist to `config.json` and are immediately consumed by `utils.py`.")
+    st.caption("Modifications saved here persist to `config.json`.")
     
     current_config = utils.load_config()
     
@@ -426,7 +425,6 @@ with tab_config:
             value=", ".join(current_config.get("exclusion_keywords", []))
         )
         
-        # Replaced columns with standard stacking for mobile readability
         st.markdown("##### Location Rules")
         t1_str = st.text_area("Tier 1 Locations", value=", ".join(current_config.get("tier_1_locations", [])))
         t2_str = st.text_area("Tier 2 Locations", value=", ".join(current_config.get("tier_2_locations", [])))
