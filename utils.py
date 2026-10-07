@@ -4,88 +4,81 @@ import re
 
 CONFIG_FILE = "config.json"
 
-DEFAULT_CONFIG = {
-    "inclusion_keywords": [
-        "software engineer", "software development engineer", "sde", 
-        "data engineer", "machine learning", "ml engineer", 
-        "ai engineer", "applied ai", "backend", "systems engineer", 
-        "platform engineer", "applied scientist"
-    ],
-    "exclusion_keywords": [
-        "senior", "sr.", "sr ", "staff", "principal", "director", 
-        "manager", "lead", "architect", "intern", "internship", 
-        "qa", "quality assurance", "test engineer", "sdet", 
-        "support", "sales", "recruiter", "product manager",
-        "iii", " 3 ", " 3", "iii," # Added Level 3 / Senior numerical blocks
-    ],
-    "tier_1_locations": [
-        "bengaluru", "bangalore", "hyderabad", "pune", "mumbai", 
-        "chennai", "gurgaon", "noida", "india"
-    ],
-    "tier_2_locations": [
-        "london", "dublin", "singapore", "tokyo", "berlin", 
-        "amsterdam", "united kingdom", "ireland"
-    ],
-    "tier_3_locations": [
-        "united states", "us", "san francisco", "sunnyvale", 
-        "cupertino", "seattle", "austin", "new york", "palo alto"
-    ]
-}
-
 def load_config():
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
                 return json.load(f)
         except Exception:
-            return DEFAULT_CONFIG
-    save_config(DEFAULT_CONFIG)
-    return DEFAULT_CONFIG
+            pass
+    # Fallback defaults if config.json is missing
+    return {
+        "inclusion_keywords": ["software engineer", "sde", "data engineer", "machine learning", "ai engineer"],
+        "exclusion_keywords": ["senior", "principal", "manager", "lead", "iii", "3", "vp", "vice president", "sr"],
+        "tier_1_locations": ["bengaluru", "hyderabad", "pune"],
+        "tier_2_locations": ["london", "singapore"],
+        "tier_3_locations": ["united states", "seattle"]
+    }
 
 def save_config(config_data):
     with open(CONFIG_FILE, "w") as f:
         json.dump(config_data, f, indent=2)
 
-def is_valid_title(title_lower):
-    config = load_config()
+def is_valid_title(title, config):
+    """
+    Strictly filters titles. Exclusions MUST be checked before inclusions.
+    Uses regex word boundaries to prevent accidental substring matches.
+    """
+    title_lower = title.lower()
     
-    inclusions = config.get("inclusion_keywords", DEFAULT_CONFIG["inclusion_keywords"])
-    if not any(kw.lower() in title_lower for kw in inclusions):
-        return False
-        
-    exclusions = config.get("exclusion_keywords", DEFAULT_CONFIG["exclusion_keywords"])
-    if any(kw.lower() in title_lower for kw in exclusions):
-        return False
-        
-    return True
+    # 1. CRITICAL: Check exclusions first. 
+    # If a blacklist word is found, reject the job immediately.
+    for excl in config.get("exclusion_keywords", []):
+        # \b ensures we match the exact word (e.g., "iii" matches "Engineer III", but not "Hawaii")
+        pattern = r'\b' + re.escape(excl) + r'\b'
+        if re.search(pattern, title_lower):
+            return False
+            
+    # 2. Check inclusions only after exclusions have passed
+    for incl in config.get("inclusion_keywords", []):
+        if incl in title_lower:
+            return True
+            
+    # If no inclusion keywords match, reject
+    return False
 
-def parse_level(title_lower):
-    # Use regex word boundaries (\b) so " i " doesn't match inside " ii " or " iii "
-    # SDE 1 / Early Career
-    sde1_pattern = r"\b(sde 1|sde i|sde-1|sde-i|engineer 1|engineer i|analyst)\b"
-    if re.search(sde1_pattern, title_lower):
-        return 1.0
-        
-    # SDE 2 / Mid Career
-    sde2_pattern = r"\b(sde 2|sde ii|sde-2|sde-ii|engineer 2|engineer ii|engineer - ii|associate)\b"
-    if re.search(sde2_pattern, title_lower):
+def extract_level(title):
+    """
+    Intelligently assigns a numeric level to a job title, 
+    accounting for Roman numerals and text variations.
+    """
+    title_lower = title.lower()
+    
+    # Check Level 3 / Senior equivalents
+    if re.search(r'\b(iii|3|senior|sr|lead|principal|manager)\b', title_lower):
+        return 3.0
+    
+    # Check Level 2 / Mid equivalents
+    if re.search(r'\b(ii|2|mid)\b', title_lower):
         return 2.0
         
-    # Unspecified / General IC
+    # Check Level 1 / Junior equivalents
+    if re.search(r'\b(i|1|junior|jr|associate|analyst|entry)\b', title_lower):
+        return 1.0
+        
+    # Fallback for unspecified levels
     return 1.5
 
-def get_location_tier(location_str):
-    loc_lower = str(location_str).lower()
-    config = load_config()
+def extract_tier(location, config):
+    loc_lower = str(location).lower()
     
-    tier_1 = config.get("tier_1_locations", DEFAULT_CONFIG["tier_1_locations"])
-    tier_2 = config.get("tier_2_locations", DEFAULT_CONFIG["tier_2_locations"])
-    tier_3 = config.get("tier_3_locations", DEFAULT_CONFIG["tier_3_locations"])
-    
-    if any(city in loc_lower for city in tier_1):
-        return "Tier 1"
-    if any(city in loc_lower for city in tier_2):
-        return "Tier 2"
-    if any(city in loc_lower for city in tier_3):
-        return "Tier 3"
+    for t1 in config.get("tier_1_locations", []):
+        if t1 in loc_lower: return "Tier 1"
+        
+    for t2 in config.get("tier_2_locations", []):
+        if t2 in loc_lower: return "Tier 2"
+        
+    for t3 in config.get("tier_3_locations", []):
+        if t3 in loc_lower: return "Tier 3"
+        
     return "Tier 4"

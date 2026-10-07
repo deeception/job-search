@@ -19,10 +19,10 @@ An automated, mobile-optimized Applicant Tracking System (ATS) extraction pipeli
   * `job_history_ledger.csv`: A chronological database of all historical job ingestions.
   * `config.json`: Dynamic rules engine for managing title inclusions, exclusions, and location tiering.
 * **Mobile-Optimized Streamlit UI (`app.py`):**
-  * **Tab 1 (Active Opportunities):** Condensed mobile-friendly table, advanced sorting/filtering, and a "Share to Gemini" Markdown payload generator.
-  * **Tab 2 (Analytics):** Grouping and charting of historical requisition data.
-  * **Tab 3 (History):** Granular, day-by-day ingestion logs.
-  * **Tab 4 (Configuration):** Live-updating UI to edit extraction rules without touching the code.
+  * **Responsive Design:** Stacked filters and condensed tables for clean smartphone viewing.
+  * **System Prompt Injection:** Automatically injects a custom career-strategist prompt into cell A1 of the CSV to command LLMs (like Gemini) upon upload to return the top 3-5 Job IDs/Titles per company.
+  * **Native Mobile Sharing:** A custom HTML/JS Base64 payload generator that triggers the native iOS/Android `navigator.share()` API to send the CSV (with descriptions and prompt) directly to WhatsApp, Mail, or Gemini.
+  * **Full Analytics Suite:** Multi-tab layout featuring Data Grouping & Analytics, Historical Ingestion Logs, and live Rule Configuration.
 
 ---
 
@@ -46,7 +46,7 @@ These platforms recently upgraded their Web Application Firewalls (Cloudflare) a
 
 ## 📂 Project Structure
 ```text
-├── app.py                  # Mobile-optimized Streamlit dashboard
+├── app.py                  # Mobile-optimized Streamlit dashboard (UI, Analytics, Native Share)
 ├── master.py               # Backend orchestration and CSV generation script
 ├── utils.py                # Core logic for leveling, tiering, and config loading
 ├── config.json             # Modifiable rules engine (Whitelists/Blacklists/Tiers)
