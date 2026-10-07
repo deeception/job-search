@@ -11,9 +11,9 @@ def load_config():
                 return json.load(f)
         except Exception:
             pass
-    # Fallback defaults if config.json is missing
+    # BROADENED DEFAULT INCLUSIONS so we don't accidentally block Amazon or Goldman
     return {
-        "inclusion_keywords": ["software engineer", "sde", "data engineer", "machine learning", "ai engineer"],
+        "inclusion_keywords": ["software", "sde", "developer", "data", "machine learning", "ai", "engineer", "backend", "frontend", "fullstack"],
         "exclusion_keywords": ["senior", "principal", "manager", "lead", "iii", "3", "vp", "vice president", "sr"],
         "tier_1_locations": ["bengaluru", "hyderabad", "pune"],
         "tier_2_locations": ["london", "singapore"],
@@ -34,6 +34,7 @@ def is_valid_title(title, config):
     # 1. CRITICAL: Check exclusions first. 
     # If a blacklist word is found, reject the job immediately.
     for excl in config.get("exclusion_keywords", []):
+        if not excl.strip(): continue # Skip empty strings
         # \b ensures we match the exact word (e.g., "iii" matches "Engineer III", but not "Hawaii")
         pattern = r'\b' + re.escape(excl) + r'\b'
         if re.search(pattern, title_lower):
@@ -41,6 +42,7 @@ def is_valid_title(title, config):
             
     # 2. Check inclusions only after exclusions have passed
     for incl in config.get("inclusion_keywords", []):
+        if not incl.strip(): continue
         if incl in title_lower:
             return True
             
