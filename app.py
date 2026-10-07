@@ -1,6 +1,7 @@
 import os
 import json
 import base64
+import concurrent.futures
 from datetime import datetime, date
 import pandas as pd
 import streamlit as st
@@ -15,6 +16,7 @@ import goldmansachs
 
 TRACKER_FILE = "seen_jobs_tracker.json"
 LEDGER_FILE = "job_history_ledger.csv"
+CONFIG_FILE = "config.json"
 
 # Updated for mobile optimization
 st.set_page_config(
@@ -38,12 +40,11 @@ def save_tracker(seen_ids):
     with open(TRACKER_FILE, "w") as f:
         json.dump(list(seen_ids), f, indent=2)
 
-# --- NEW: Wipes both the tracker AND the historical ledger off the server ---
 def wipe_database():
-    if os.path.exists(TRACKER_FILE):
-        os.remove(TRACKER_FILE)
-    if os.path.exists(LEDGER_FILE):
-        os.remove(LEDGER_FILE)
+    """Wipes tracker, ledger, AND corrupted configs to restore defaults."""
+    for file_path in [TRACKER_FILE, LEDGER_FILE, CONFIG_FILE]:
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
 def load_ledger():
     if os.path.exists(LEDGER_FILE):
@@ -89,7 +90,7 @@ def append_to_ledger(new_jobs_list):
     else:
         new_df.to_csv(LEDGER_FILE, index=False)
 
-# ----------------- Execution Orchestration -----------------
+# ----------------- Execution Orchestration (PARALLEL) -----------------
 def execute_pipeline():
     seen_ids = load_tracker()
     fresh_jobs = []
@@ -104,18 +105,28 @@ def execute_pipeline():
 
     progress_bar = st.progress(0)
     status_box = st.empty()
+    status_box.text("Launching parallel extractors...")
 
-    for idx, (name, scrape_fn) in enumerate(scrapers):
-        status_box.text(f"Querying endpoint: {name}...")
-        try:
-            results = scrape_fn(seen_ids)
-            if results:
-                fresh_jobs.extend(results)
-                for item in results:
-                    seen_ids.add(str(item["ID"]))
-        except Exception as e:
-            st.error(f"Error communicating with {name}: {e}")
-        progress_bar.progress((idx + 1) / len(scrapers))
+    # Execute all scrapers simultaneously using a ThreadPool
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(scrapers)) as executor:
+        # Submit all tasks to the thread pool
+        future_to_name = {executor.submit(fn, seen_ids): name for name, fn in scrapers}
+        
+        completed = 0
+        for future in concurrent.futures.as_completed(future_to_name):
+            name = future_to_name[future]
+            try:
+                results = future.result()
+                if results:
+                    fresh_jobs.extend(results)
+                    for item in results:
+                        seen_ids.add(str(item["ID"]))
+            except Exception as e:
+                st.error(f"Error communicating with {name}: {e}")
+            
+            completed += 1
+            progress_bar.progress(completed / len(scrapers))
+            status_box.text(f"Completed {name} ({completed}/{len(scrapers)})...")
 
     save_tracker(seen_ids)
     append_to_ledger(fresh_jobs)
@@ -136,10 +147,9 @@ with st.sidebar:
                 st.info("Execution complete: No new requisitions match filter rules.")
             st.rerun()
 
-    # --- NEW: Factory Reset Button ---
     if st.button("🚨 Factory Reset (Wipe Database)", use_container_width=True):
         wipe_database()
-        st.warning("Server database wiped! Run extraction to build a fresh ledger.")
+        st.warning("Server database & config wiped! Run extraction to build a fresh ledger.")
         st.rerun()
 
     st.markdown("---")
