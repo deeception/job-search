@@ -38,9 +38,12 @@ def save_tracker(seen_ids):
     with open(TRACKER_FILE, "w") as f:
         json.dump(list(seen_ids), f, indent=2)
 
-def wipe_tracker():
+# --- NEW: Wipes both the tracker AND the historical ledger off the server ---
+def wipe_database():
     if os.path.exists(TRACKER_FILE):
         os.remove(TRACKER_FILE)
+    if os.path.exists(LEDGER_FILE):
+        os.remove(LEDGER_FILE)
 
 def load_ledger():
     if os.path.exists(LEDGER_FILE):
@@ -133,9 +136,11 @@ with st.sidebar:
                 st.info("Execution complete: No new requisitions match filter rules.")
             st.rerun()
 
-    if st.button("Reset Deduplication Tracker", use_container_width=True):
-        wipe_tracker()
-        st.warning("Deduplication index cleared. Next run will re-ingest all postings.")
+    # --- NEW: Factory Reset Button ---
+    if st.button("🚨 Factory Reset (Wipe Database)", use_container_width=True):
+        wipe_database()
+        st.warning("Server database wiped! Run extraction to build a fresh ledger.")
+        st.rerun()
 
     st.markdown("---")
     st.markdown("### System Telemetry")
@@ -223,7 +228,6 @@ with tab_active:
 
         st.markdown(f"**Displaying {len(filtered)} requisitions**")
         
-        # Condensed mobile-friendly UI table
         display_columns = ["Company", "Title", "Location", "Level", "Posted_Date", "Link"]
         ui_cols = [c for c in display_columns if c in filtered.columns]
         
@@ -243,12 +247,10 @@ with tab_active:
         st.markdown("### 📤 Export & Share")
         
         if not filtered.empty:
-            # 1. Grab FULL columns for export (including ID and Description)
             export_columns = ["Company", "ID", "Title", "Location", "Tier", "Level", "Posted_Date", "Link", "Description"]
             avail_export_cols = [c for c in export_columns if c in filtered.columns]
             export_df = filtered[avail_export_cols].copy()
             
-            # 2. Inject the New System Prompt into Cell A1
             system_prompt = (
                 "SYSTEM INSTRUCTION: Evaluate my attached resume against this dataset of jobs. "
                 "For EACH company, give me the top 3 to 5 best matches based on my skills and experience. "
@@ -261,7 +263,6 @@ with tab_active:
             
             export_df = pd.concat([pd.DataFrame([prompt_row]), export_df], ignore_index=True)
             
-            # 3. Convert to CSV string and Base64 encode
             csv_string = export_df.to_csv(index=False)
             b64_csv = base64.b64encode(csv_string.encode("utf-8")).decode("utf-8")
             filename = f"job_matches_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
@@ -278,8 +279,6 @@ with tab_active:
                 )
             
             with col_share2:
-                # We inject the prompt directly into the 'text' field of the JS share intent, 
-                # just in case the Gemini App drops the file attachment.
                 safe_prompt_js = system_prompt.replace('"', '\\"').replace('\n', ' ')
                 
                 html_code = f"""
