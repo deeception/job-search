@@ -6,6 +6,7 @@ from datetime import datetime, date
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+from streamlit.runtime.scriptrunner import add_script_run_ctx
 
 import utils
 import amazon
@@ -18,7 +19,6 @@ TRACKER_FILE = "seen_jobs_tracker.json"
 LEDGER_FILE = "job_history_ledger.csv"
 CONFIG_FILE = "config.json"
 
-# Updated for mobile optimization
 st.set_page_config(
     page_title="Requisition Intelligence",
     page_icon="💼",
@@ -41,47 +41,25 @@ def save_tracker(seen_ids):
         json.dump(list(seen_ids), f, indent=2)
 
 def wipe_database():
-    """Wipes tracker, ledger, and FORCE-RESTORES the default config.json"""
-    if os.path.exists(TRACKER_FILE):
-        os.remove(TRACKER_FILE)
-    if os.path.exists(LEDGER_FILE):
-        os.remove(LEDGER_FILE)
-        
-    # Force rewrite the config file with the broad whitelist to fix the 0 jobs issue
-    default_config = {
-        "inclusion_keywords": ["software", "sde", "developer", "data", "machine learning", "ai", "engineer", "backend", "frontend", "fullstack"],
-        "exclusion_keywords": ["senior", "principal", "manager", "lead", "iii", "3", "vp", "vice president", "sr"],
-        "tier_1_locations": ["bengaluru", "hyderabad", "pune"],
-        "tier_2_locations": ["london", "singapore"],
-        "tier_3_locations": ["united states", "seattle"]
-    }
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(default_config, f, indent=2)
+    if os.path.exists(TRACKER_FILE): os.remove(TRACKER_FILE)
+    if os.path.exists(LEDGER_FILE): os.remove(LEDGER_FILE)
 
 def load_ledger():
     if os.path.exists(LEDGER_FILE):
         try:
             df = pd.read_csv(LEDGER_FILE)
             df["Discovered_Date"] = pd.to_datetime(df["Discovered_Date"]).dt.date
-            # Ensure new columns exist for backwards compatibility
-            if "Posted_Date" not in df.columns:
-                df["Posted_Date"] = "Unknown"
-            else:
-                df["Posted_Date"] = df["Posted_Date"].fillna("Unknown")
-            
-            if "Description" not in df.columns:
-                df["Description"] = "Description not available"
-            else:
-                df["Description"] = df["Description"].fillna("Description not available")
-                
+            if "Posted_Date" not in df.columns: df["Posted_Date"] = "Unknown"
+            else: df["Posted_Date"] = df["Posted_Date"].fillna("Unknown")
+            if "Description" not in df.columns: df["Description"] = "Description not available"
+            else: df["Description"] = df["Description"].fillna("Description not available")
             return df
         except Exception:
             return pd.DataFrame()
     return pd.DataFrame()
 
 def append_to_ledger(new_jobs_list):
-    if not new_jobs_list:
-        return
+    if not new_jobs_list: return
     now_dt = datetime.now()
     cur_date = now_dt.date()
     cur_timestamp = now_dt.strftime("%Y-%m-%d %H:%M:%S")
@@ -102,7 +80,7 @@ def append_to_ledger(new_jobs_list):
     else:
         new_df.to_csv(LEDGER_FILE, index=False)
 
-# ----------------- Execution Orchestration (PARALLEL) -----------------
+# ----------------- Execution Orchestration (SAFE PARALLEL) -----------------
 def execute_pipeline():
     seen_ids = load_tracker()
     fresh_jobs = []
@@ -120,7 +98,12 @@ def execute_pipeline():
     status_box.text("Launching parallel extractors...")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(scrapers)) as executor:
-        future_to_name = {executor.submit(fn, seen_ids): name for name, fn in scrapers}
+        future_to_name = {}
+        for name, fn in scrapers:
+            # We pass a COPY of the set so threads don't crash modifying the same memory
+            future = executor.submit(fn, set(seen_ids))
+            add_script_run_ctx(future) # CRITICAL: Gives the background thread Streamlit context
+            future_to_name[future] = name
         
         completed = 0
         for future in concurrent.futures.as_completed(future_to_name):
@@ -159,7 +142,7 @@ with st.sidebar:
 
     if st.button("🚨 Factory Reset (Wipe Database)", use_container_width=True):
         wipe_database()
-        st.warning("Server database wiped and safe default config restored!")
+        st.warning("Server database wiped! Run extraction to build a fresh ledger.")
         st.rerun()
 
     st.markdown("---")
@@ -261,9 +244,6 @@ with tab_active:
             hide_index=True
         )
 
-        # -------------------------------------------------------------
-        # CSV Export & Native Share Button
-        # -------------------------------------------------------------
         st.markdown("### 📤 Export & Share")
         
         if not filtered.empty:
@@ -300,7 +280,6 @@ with tab_active:
             
             with col_share2:
                 safe_prompt_js = system_prompt.replace('"', '\\"').replace('\n', ' ')
-                
                 html_code = f"""
                 <div style="display: flex; justify-content: center; width: 100%;">
                     <button id="shareButton" style="
@@ -318,7 +297,6 @@ with tab_active:
                         📲 Share (Mobile)
                     </button>
                 </div>
-
                 <script>
                     document.getElementById('shareButton').addEventListener('click', async () => {{
                         if (navigator.share) {{
@@ -326,24 +304,12 @@ with tab_active:
                                 const b64Data = "{b64_csv}";
                                 const binaryString = window.atob(b64Data);
                                 const bytes = new Uint8Array(binaryString.length);
-                                for (let i = 0; i < binaryString.length; i++) {{
-                                    bytes[i] = binaryString.charCodeAt(i);
-                                }}
-                                
+                                for (let i = 0; i < binaryString.length; i++) {{ bytes[i] = binaryString.charCodeAt(i); }}
                                 const blob = new Blob([bytes], {{ type: 'text/csv' }});
                                 const file = new File([blob], "{filename}", {{ type: 'text/csv' }});
-                                
-                                await navigator.share({{
-                                    title: 'Job Matches CSV',
-                                    text: "{safe_prompt_js}",
-                                    files: [file]
-                                }});
-                            }} catch (err) {{
-                                console.log('Sharing failed:', err);
-                            }}
-                        }} else {{
-                            alert('Native sharing is not supported. Please use Download.');
-                        }}
+                                await navigator.share({{ title: 'Job Matches CSV', text: "{safe_prompt_js}", files: [file] }});
+                            }} catch (err) {{ console.log('Sharing failed:', err); }}
+                        }} else {{ alert('Native sharing is not supported. Please use Download.'); }}
                     }});
                 </script>
                 """
@@ -361,27 +327,19 @@ with tab_analytics:
         )
         
         mapped_col = {
-            "Company": "Company",
-            "Location Tier": "Tier",
-            "Level": "Level",
-            "Discovered_Date": "Discovered_Date",
-            "Posted_Date": "Posted_Date"
+            "Company": "Company", "Location Tier": "Tier", "Level": "Level",
+            "Discovered_Date": "Discovered_Date", "Posted_Date": "Posted_Date"
         }[group_dim]
         
         summary_table = (
             ledger_data.groupby(mapped_col)
-            .agg(
-                Total_Requisitions=("ID", "count"),
-                Unique_Titles=("Title", "nunique")
-            )
+            .agg(Total_Requisitions=("ID", "count"), Unique_Titles=("Title", "nunique"))
             .reset_index()
             .sort_values(by="Total_Requisitions", ascending=False)
         )
         
         st.markdown(f"##### Distribution across {group_dim}")
-        chart_df = summary_table.set_index(mapped_col)["Total_Requisitions"]
-        st.bar_chart(chart_df)
-        
+        st.bar_chart(summary_table.set_index(mapped_col)["Total_Requisitions"])
         st.markdown(f"##### Breakdown by {group_dim}")
         st.dataframe(summary_table, use_container_width=True, hide_index=True)
 
@@ -391,25 +349,16 @@ with tab_history:
         st.info("No historical records discovered.")
     else:
         st.markdown("#### Chronological Ledger History")
-        
         daily_summary = (
             ledger_data.groupby("Discovered_Date")
-            .agg(
-                Total_Jobs_Indexed=("ID", "count"),
-                Companies_Covered=("Company", "nunique")
-            )
+            .agg(Total_Jobs_Indexed=("ID", "count"), Companies_Covered=("Company", "nunique"))
             .reset_index()
             .sort_values(by="Discovered_Date", ascending=False)
         )
-        
         st.dataframe(daily_summary, use_container_width=True, hide_index=True)
         
         st.markdown("#### Detailed Run Logs")
-        date_inspect = st.selectbox(
-            "Inspect Log for Date", 
-            daily_summary["Discovered_Date"].tolist()
-        )
-        
+        date_inspect = st.selectbox("Inspect Log for Date", daily_summary["Discovered_Date"].tolist())
         day_slice = ledger_data[ledger_data["Discovered_Date"] == date_inspect]
         
         cols_to_show = ["Discovered_Timestamp", "Company", "Title", "Location", "Posted_Date", "Link"]
@@ -417,18 +366,14 @@ with tab_history:
         
         st.dataframe(
             day_slice[avail_log_cols],
-            column_config={
-                "Link": st.column_config.LinkColumn("Listing", display_text="Open Listing")
-            },
-            use_container_width=True,
-            hide_index=True
+            column_config={"Link": st.column_config.LinkColumn("Listing", display_text="Open Listing")},
+            use_container_width=True, hide_index=True
         )
 
 # ----------------- Tab 4: Rule Configuration -----------------
 with tab_config:
     st.markdown("#### Dynamic Engine Configuration")
     st.caption("Modifications saved here persist to `config.json`.")
-    
     current_config = utils.load_config()
     
     with st.form("rules_editor_form"):
