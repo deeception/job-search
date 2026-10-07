@@ -31,9 +31,13 @@ def scrape(seen_ids):
                 if level == 0: continue
                 
                 location = fields.get("location", [""])[0]
+                # Amazon jobs return posting date as "createdDate" (e.g. "October 14, 2026")
+                posted_date = fields.get("createdDate", ["Unknown"])[0]
+                
                 jobs.append({
                     "Company": "Amazon", "ID": job_id, "Title": title, 
                     "Location": location, "Tier": utils.get_location_tier(location), "Level": level,
+                    "Posted_Date": posted_date,
                     "Link": f"https://amazon.jobs/en/jobs/{job_id}"
                 })
         except Exception as e:

@@ -6,18 +6,15 @@ import urllib.parse
 def scrape(seen_ids):
     jobs = []
     target_queries = ["software engineer", "data engineer", "machine learning", "ai engineer"]
-    
-    # We define India here because TalentBrew requires the location to be URL encoded in the request
     location = "India"
     
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
+        "User-Agent": "Mozilla/5.0",
         "Accept": "application/json; charset=utf-8",
         "X-Requested-With": "XMLHttpRequest"
     }
 
     for query in target_queries:
-        # Properly URL encode the search parameters to match the raw fetch trace
         encoded_query = urllib.parse.quote_plus(query)
         encoded_loc = urllib.parse.quote_plus(location)
         
@@ -33,52 +30,43 @@ def scrape(seen_ids):
             response.raise_for_status()
             data = response.json()
             
-            # TalentBrew returns the jobs as a single chunk of pre-rendered HTML inside the "results" key
             html_content = data.get("results", "")
-            if not html_content:
-                continue
+            if not html_content: continue
                 
-            # Parse the HTML to extract the job details
             soup = BeautifulSoup(html_content, "html.parser")
             job_items = soup.find_all("li")
             
             for item in job_items:
                 link_tag = item.find("a")
-                if not link_tag:
-                    continue
+                if not link_tag: continue
                 
-                # Extract the partial link and title
                 partial_link = link_tag.get("href", "")
                 title = link_tag.find("h2")
                 title = title.text.strip() if title else ""
                 
-                # Extract the location from the <span> tag
                 loc_tag = link_tag.find("span", class_="job-location")
                 loc_text = loc_tag.text.strip() if loc_tag else location
                 
-                # TalentBrew encodes the job ID into the URL path (e.g., /job/location/title/JOB_ID)
                 job_id = partial_link.split("/")[-1] if "/" in partial_link else title
                 
-                if not job_id or not title or job_id in seen_ids:
-                    continue
+                if not job_id or not title or job_id in seen_ids: continue
                     
                 title_lower = title.lower()
-                if not utils.is_valid_title(title_lower):
-                    continue
+                if not utils.is_valid_title(title_lower): continue
                     
                 level = utils.parse_level(title_lower)
-                if level == 0:
-                    continue
+                if level == 0: continue
                 
                 full_link = f"https://jobs.intuit.com{partial_link}"
                 
+                # Extract posting date from Intuit's custom span (often formatted as "Posted MM/DD/YYYY")
+                date_tag = link_tag.find("span", class_="job-date-posted")
+                posted_date = date_tag.text.strip().replace("Posted ", "") if date_tag else "Unknown"
+                
                 jobs.append({
-                    "Company": "Intuit",
-                    "ID": job_id,
-                    "Title": title,
-                    "Location": loc_text,
-                    "Tier": utils.get_location_tier(loc_text),
-                    "Level": level,
+                    "Company": "Intuit", "ID": job_id, "Title": title,
+                    "Location": loc_text, "Tier": utils.get_location_tier(loc_text), "Level": level,
+                    "Posted_Date": posted_date,
                     "Link": full_link
                 })
         except Exception as e:

@@ -46,6 +46,11 @@ def load_ledger():
         try:
             df = pd.read_csv(LEDGER_FILE)
             df["Discovered_Date"] = pd.to_datetime(df["Discovered_Date"]).dt.date
+            # Ensure Posted_Date exists for backwards compatibility with old ledger data
+            if "Posted_Date" not in df.columns:
+                df["Posted_Date"] = "Unknown"
+            else:
+                df["Posted_Date"] = df["Posted_Date"].fillna("Unknown")
             return df
         except Exception:
             return pd.DataFrame()
@@ -61,6 +66,9 @@ def append_to_ledger(new_jobs_list):
     for job in new_jobs_list:
         job["Discovered_Date"] = cur_date
         job["Discovered_Timestamp"] = cur_timestamp
+        # Fallback if scraper hasn't been updated yet
+        if "Posted_Date" not in job:
+            job["Posted_Date"] = "Unknown"
 
     new_df = pd.DataFrame(new_jobs_list)
     
@@ -146,7 +154,7 @@ tab_active, tab_analytics, tab_history, tab_config = st.tabs([
     "Active Opportunities",
     "Data Grouping & Analytics",
     "Historical Ingestion Log",
-    "Rule Configuration (utils.py)"
+    "Rule Configuration"
 ])
 
 # ----------------- Tab 1: Active Opportunities -----------------
@@ -174,12 +182,19 @@ with tab_active:
         with f_col4:
             search_query = st.text_input("Title / Keyword Search", "")
 
-        # Date Scope Filter
-        date_scope = st.radio(
-            "Temporal Filter",
-            options=["All Dates", "Discovered Today", "Discovered Yesterday", "Custom Date Selection"],
-            horizontal=True
-        )
+        # Date & Sort Scope Filter
+        s_col1, s_col2 = st.columns([2, 1])
+        with s_col1:
+            date_scope = st.radio(
+                "Temporal Filter",
+                options=["All Dates", "Discovered Today", "Discovered Yesterday", "Custom Date Selection"],
+                horizontal=True
+            )
+        with s_col2:
+            sort_pref = st.selectbox(
+                "Sort Table By",
+                ["Discovered Timestamp (Newest)", "Level (Highest First)", "Company (A-Z)"]
+            )
 
         filtered = ledger_data.copy()
         
@@ -203,15 +218,25 @@ with tab_active:
             chosen_date = st.selectbox("Select Record Date", unique_dates)
             filtered = filtered[filtered["Discovered_Date"] == chosen_date]
 
+        # Apply Sorting
+        if sort_pref == "Discovered Timestamp (Newest)":
+            filtered = filtered.sort_values(by="Discovered_Timestamp", ascending=False)
+        elif sort_pref == "Level (Highest First)":
+            filtered = filtered.sort_values(by=["Level", "Discovered_Timestamp"], ascending=[False, False])
+        elif sort_pref == "Company (A-Z)":
+            filtered = filtered.sort_values(by=["Company", "Discovered_Timestamp"], ascending=[True, False])
+
         st.markdown(f"**Displaying {len(filtered)} requisitions**")
         
-        display_columns = ["Company", "Title", "Location", "Tier", "Level", "ID", "Discovered_Date", "Link"]
+        # Injected 'Posted_Date' right before Link
+        display_columns = ["Company", "Title", "Location", "Tier", "Level", "ID", "Discovered_Date", "Posted_Date", "Link"]
         available_cols = [c for c in display_columns if c in filtered.columns]
         
         st.dataframe(
             filtered[available_cols],
             column_config={
-                "Link": st.column_config.LinkColumn("Application Portal", display_text="Open Listing")
+                "Link": st.column_config.LinkColumn("Application Portal", display_text="Open Listing"),
+                "Posted_Date": st.column_config.TextColumn("ATS Posted Date")
             },
             use_container_width=True,
             hide_index=True
@@ -235,14 +260,15 @@ with tab_analytics:
         
         group_dim = st.selectbox(
             "Primary Grouping Dimension", 
-            ["Company", "Location Tier", "Level", "Discovered_Date"]
+            ["Company", "Location Tier", "Level", "Discovered_Date", "Posted_Date"]
         )
         
         mapped_col = {
             "Company": "Company",
             "Location Tier": "Tier",
             "Level": "Level",
-            "Discovered_Date": "Discovered_Date"
+            "Discovered_Date": "Discovered_Date",
+            "Posted_Date": "Posted_Date"
         }[group_dim]
         
         summary_table = (
@@ -264,16 +290,6 @@ with tab_analytics:
             st.markdown(f"##### Distribution across {group_dim}")
             chart_df = summary_table.set_index(mapped_col)["Total_Requisitions"]
             st.bar_chart(chart_df)
-
-        st.markdown("---")
-        st.markdown("##### Multi-Variable Matrix: Company vs. Location Tier")
-        pivot_table = pd.crosstab(
-            ledger_data["Company"], 
-            ledger_data["Tier"], 
-            margins=True, 
-            margins_name="Total"
-        )
-        st.dataframe(pivot_table, use_container_width=True)
 
 # ----------------- Tab 3: Historical Ingestion Log -----------------
 with tab_history:
@@ -301,8 +317,12 @@ with tab_history:
         )
         
         day_slice = ledger_data[ledger_data["Discovered_Date"] == date_inspect]
+        
+        cols_to_show = ["Discovered_Timestamp", "Company", "Title", "Location", "Posted_Date", "Link"]
+        avail_log_cols = [c for c in cols_to_show if c in day_slice.columns]
+        
         st.dataframe(
-            day_slice[["Discovered_Timestamp", "Company", "Title", "Location", "ID", "Link"]],
+            day_slice[avail_log_cols],
             column_config={
                 "Link": st.column_config.LinkColumn("Listing", display_text="Open Listing")
             },
@@ -310,7 +330,7 @@ with tab_history:
             hide_index=True
         )
 
-# ----------------- Tab 4: Rule Configuration (utils.py) -----------------
+# ----------------- Tab 4: Rule Configuration -----------------
 with tab_config:
     st.markdown("#### Dynamic Engine Configuration")
     st.caption("Modifications saved here persist to `config.json` and are immediately consumed by `utils.py`.")

@@ -26,9 +26,13 @@ def scrape(seen_ids):
                 if level == 0: continue
                 
                 location = job.get("PrimaryLocation", "Multiple Locations")
+                # Oracle HCM exposes posting date clearly
+                posted_date = job.get("PostingDate", "Unknown")
+                
                 jobs.append({
                     "Company": "JPMorgan", "ID": job_id, "Title": title, 
                     "Location": location, "Tier": utils.get_location_tier(location), "Level": level,
+                    "Posted_Date": posted_date[:10] if posted_date != "Unknown" else "Unknown",
                     "Link": f"https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/{job_id}"
                 })
         except Exception as e:

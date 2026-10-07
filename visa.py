@@ -24,9 +24,12 @@ def scrape(seen_ids):
                 if level == 0: continue
                 
                 location = job.get("locationsText", "Unknown")
+                posted_date = job.get("postedOn", "Unknown")
+                
                 jobs.append({
                     "Company": "Visa", "ID": job_id, "Title": title, 
                     "Location": location, "Tier": utils.get_location_tier(location), "Level": level,
+                    "Posted_Date": posted_date,
                     "Link": f"https://visa.wd5.myworkdayjobs.com/en-US/Visa{job_id}"
                 })
         except Exception as e:

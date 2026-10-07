@@ -15,7 +15,6 @@ def scrape(seen_ids):
     target_queries = ["software engineer", "data engineer", "machine learning", "ai engineer"]
     jobs = []
 
-    # Updated query to explicitly request externalSource where the public Req ID lives
     graphql_query = """
     query GetRoles($searchQueryInput: RoleSearchQueryInput!) {
       roleSearch(searchQueryInput: $searchQueryInput) {
@@ -43,28 +42,14 @@ def scrape(seen_ids):
             "operationName": "GetRoles",
             "variables": {
                 "searchQueryInput": {
-                    "page": {
-                        "pageSize": 50,
-                        "pageNumber": 0
-                    },
-                    "sort": {
-                        "sortStrategy": "RELEVANCE",
-                        "sortOrder": "DESC"
-                    },
-                    "filters": [
-                        {
-                            "filterCategoryType": "LOCATION",
-                            "filters": [
-                                {
-                                    "filter": "India",
-                                    "subFilters": [
-                                        {"filter": "Karnataka", "subFilters": [{"filter": "Bengaluru", "subFilters": []}]},
-                                        {"filter": "Telangana", "subFilters": [{"filter": "Hyderabad", "subFilters": []}]}
-                                    ]
-                                }
-                            ]
-                        }
-                    ],
+                    "page": {"pageSize": 50, "pageNumber": 0},
+                    "sort": {"sortStrategy": "RELEVANCE", "sortOrder": "DESC"},
+                    "filters": [{"filterCategoryType": "LOCATION", "filters": [
+                        {"filter": "India", "subFilters": [
+                            {"filter": "Karnataka", "subFilters": [{"filter": "Bengaluru", "subFilters": []}]},
+                            {"filter": "Telangana", "subFilters": [{"filter": "Hyderabad", "subFilters": []}]}
+                        ]}
+                    ]}],
                     "experiences": ["EARLY_CAREER", "PROFESSIONAL"],
                     "searchTerm": query
                 }
@@ -80,33 +65,22 @@ def scrape(seen_ids):
             job_list = data.get("data", {}).get("roleSearch", {}).get("items", [])
             
             for job in job_list:
-                # Prioritize externalSource.sourceId, falling back to roleId
                 ext_source = job.get("externalSource") or {}
                 raw_id = str(ext_source.get("sourceId") or job.get("roleId") or "")
-                
-                # Strip internal suffixes like "_GS_MID_CAREER"
                 job_id = raw_id.split("_")[0].strip()
                 
-                # Drop draft/unsynced UUIDs (contains hyphens or is longer than standard IDs)
-                if not job_id or len(job_id) > 10 or "-" in job_id:
-                    continue
-
-                if job_id in seen_ids:
-                    continue
+                if not job_id or len(job_id) > 10 or "-" in job_id: continue
+                if job_id in seen_ids: continue
                 
                 title = job.get("jobTitle", "")
-                if not title:
-                    continue
+                if not title: continue
 
                 title_lower = title.lower()
-                if not utils.is_valid_title(title_lower):
-                    continue
+                if not utils.is_valid_title(title_lower): continue
                     
                 level = utils.parse_level(title_lower)
-                if level == 0:
-                    continue
+                if level == 0: continue
                 
-                # Format location
                 loc_list = job.get("locations", [])
                 if loc_list:
                     primary_loc = loc_list[0]
@@ -123,6 +97,8 @@ def scrape(seen_ids):
                     "Location": loc,
                     "Tier": utils.get_location_tier(loc),
                     "Level": level,
+                    # Goldman's API hides posting dates on unauthenticated searches
+                    "Posted_Date": "Unknown",
                     "Link": f"https://higher.gs.com/roles/{job_id}"
                 })
         except Exception as e:
